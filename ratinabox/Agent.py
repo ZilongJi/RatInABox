@@ -347,7 +347,7 @@ class Agent:
         Note after importing trajectory data you still need to run a simulation using the Agent.update(dt=dt) function. Each update moves the agent by a time dt along its imported trajectory. If the simulation is run for longer than the time availble in the imported trajectory, it loops back to the start. Imported times are shifted so that time[0] = 0.
 
         Args:
-            times (array-like): list or array of time stamps 
+            times (array-like): list or array of time stamps. Should be 1 D array, i.e., (N,), not (N,1).
             positions (_type_): list or array of positions 
             dataset: if `sargolini' will load `sargolini' trajectory data from './data/sargolini.npz' (Sargolini et al. 2006). Else you can pass a path to a .npz file which must contain time and trajectory data under keys 't' and 'pos'
         """
