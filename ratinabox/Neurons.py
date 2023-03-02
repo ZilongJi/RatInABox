@@ -93,6 +93,8 @@ class Neurons:
         update_class_params(self, self.params)
 
         self.firingrate = np.zeros(self.n)
+        self.adaptation = np.zeros((self.n,1)) #add adaptation by zilong
+        
         self.history = {}
         self.history["t"] = []
         self.history["firingrate"] = []
@@ -750,6 +752,126 @@ class GridCells(Neurons):
         firingrate = (
             firingrate * (self.max_fr - self.min_fr) + self.min_fr
         )  # scales from being between [0,1] to [min_fr, max_fr]
+        return firingrate
+
+class AdaptGridCells(Neurons):
+    """The AdaptGridCells class defines a population of GridCells with firign rate adaptatrion. This class is a subclass of Neurons() and inherits it properties/plotting functions.  
+
+    Must be initialised with an Agent and a 'params' dictionary. 
+
+    AdaptGridCells defines a set of 'n' grid cells with random orientations, grid scales and offsets (these can be set non-randomly of coursse). Grids are modelled as the rectified sum of three cosine waves at 60 degrees to each other. 
+
+    List of functions: 
+        • get_state()
+    
+    default_params = {
+            "n": 10,
+            "gridscale": 0.45,
+            "random_orientations": True,
+            "random_gridscales": True,
+            "min_fr": 0,
+            "max_fr": 1,
+            "name": "GridCells",
+        }
+    """
+
+    def __init__(self, Agent, params={}):
+        """Initialise AdaptGridCells(), takes as input a parameter dictionary. Any values not provided by the params dictionary are taken from a default dictionary below.
+
+        Args:
+            params (dict, optional). Defaults to {}."""
+
+        default_params = {
+            "n": 10,
+            "gridscale": 0.45,
+            "random_orientations": True,
+            "random_gridscales": True,
+            "min_fr": 0,
+            "max_fr": 1,
+            "adapt_alpha": 0.9,
+            "adapt_beta": 0.05,
+            "name": "AdaptGridCells",
+        }
+        self.Agent = Agent
+        default_params.update(params)
+        self.params = default_params
+        super().__init__(Agent, self.params)
+
+        # Initialise grid cells
+        assert (
+            self.Agent.Environment.dimensionality == "2D"
+        ), "grid cells only available in 2D"
+        
+        #self.phase_offsets = np.random.uniform(0, self.gridscale, size=(self.n, 2))
+        a1 = np.linspace(0, self.gridscale, self.n).reshape(self.n,1)
+        a2 = np.linspace(0, self.gridscale, self.n).reshape(self.n,1)
+        self.phase_offsets = np.hstack((a1,a2))
+        
+        w = []
+        for i in range(self.n):
+            w1 = np.array([1, 0])
+            if self.random_orientations == True:
+                w1 = rotate(w1, np.random.uniform(0, 2 * np.pi))
+            w2 = rotate(w1, np.pi / 3)
+            w3 = rotate(w1, 2 * np.pi / 3)
+            w.append(np.array([w1, w2, w3]))
+        self.w = np.array(w)
+        if self.random_gridscales == True:
+            self.gridscales = np.random.rayleigh(scale=self.gridscale, size=self.n)
+        else:
+            self.gridscales = np.ones(self.n)*self.gridscale
+        if verbose is True:
+            print(
+                "AdaptGridCells successfully initialised. You can also manually set their gridscale (GridCells.gridscales), offsets (AdaptGridCells.phase_offset) and orientations (AdaptGridCells.w1, AdaptGridCells.w2, AdaptGridCells.w3 give the cosine vectors)"
+            )
+        return
+
+    def get_state(self, evaluate_at="agent", **kwargs):
+        """Returns the firing rate of the grid cells which has firing rate adaptation.
+        By default position is taken from the Agent and used to calculate firing rates. This can also by passed directly (evaluate_at=None, pos=pass_array_of_positions) or you can use all the positions in the environment (evaluate_at="all").
+
+        Returns:
+            firingrates: an array of firing rates 
+        """
+        if evaluate_at == "agent":
+            pos = self.Agent.pos
+        elif evaluate_at == "all":
+            pos = self.Agent.Environment.flattened_discrete_coords
+        else:
+            pos = kwargs["pos"]
+        pos = np.array(pos)
+        pos = pos.reshape(-1, pos.shape[-1])
+
+        # grid cells are modelled as the thresholded sum of three cosines all at 60 degree offsets
+        # vectors to grids cells "centred" at their (random) phase offsets
+        vecs = get_vectors_between(self.phase_offsets, pos)  # shape = (N_cells,N_pos,2)
+        w1 = np.tile(np.expand_dims(self.w[:, 0, :], axis=1), reps=(1, pos.shape[0], 1))
+        w2 = np.tile(np.expand_dims(self.w[:, 1, :], axis=1), reps=(1, pos.shape[0], 1))
+        w3 = np.tile(np.expand_dims(self.w[:, 2, :], axis=1), reps=(1, pos.shape[0], 1))
+        gridscales = np.tile(
+            np.expand_dims(self.gridscales, axis=1), reps=(1, pos.shape[0])
+        )
+        phi_1 = ((2 * np.pi) / gridscales) * (vecs * w1).sum(axis=-1)
+        phi_2 = ((2 * np.pi) / gridscales) * (vecs * w2).sum(axis=-1)
+        phi_3 = ((2 * np.pi) / gridscales) * (vecs * w3).sum(axis=-1)
+        firingrate = (1 / 3) * ((np.cos(phi_1) + np.cos(phi_2) + np.cos(phi_3)))
+
+        firingrate = (
+            firingrate * (self.max_fr - self.min_fr) + self.min_fr
+        )  # scales from being between [0,1] to [min_fr, max_fr]
+        
+        
+        
+        #add adaptation to firing rate
+        firingrate = np.exp(firingrate) - self.adaptation
+        #print(firingrate)
+        #firingrate = np.exp(firingrate - self.adaptation)
+        
+        #firingrate[firingrate < 0] = 0
+        
+        #update adaptation
+        self.adaptation = self.adapt_alpha*self.adaptation + self.adapt_beta*firingrate
+        
         return firingrate
 
 
